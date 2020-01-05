@@ -9,22 +9,26 @@
 
 #include "ds1307.h"
 
-volatile uint8_t hour = 9,                         // current hour
-                 minute = 34;                       // current minute
+// {{{ global variables
 
-typedef enum { SHOW_TIME } State;         // current clock state
-volatile State  state = SHOW_TIME;
+volatile uint8_t hour = 0,                         // current hour
+                 minute = 0;                       // current minute
 
 volatile uint8_t current_digit = 0;                // current digit being displayed (changes at 1000 Hz)
 volatile uint8_t digit[4] = { 0, 0, 0, 0 };        // current number for each one of the 4 digits
 
 typedef struct {
     bool update_from_clock : 1;
+    bool check_buttons: 1;
 } Events;
-volatile Events events = { 0 };
+volatile Events events = { 0, 0 };
 
 volatile unsigned long timer1_counter = 0;
 volatile bool show_point = false;
+
+// }}}
+
+// {{{ 7-seg digits
 
 uint8_t images[] = {
     //CG.DEBFA
@@ -52,6 +56,10 @@ uint8_t images[] = {
 
     0b00000000,  // empty (20)
 };
+
+// }}}
+
+// {{{ initial setup
 
 static void iosetup()
 {
@@ -83,34 +91,34 @@ static void iosetup()
 
     // setup i2c
     ds1307_init();
-    ds1307_setdate(12, 12, 31, 23, 59, 35);
+    // ds1307_setdate(12, 12, 31, 23, 59, 35);
 
     sei();
 }
 
+// }}}
+
+// {{{ communication with DS1307
+
 static void update_from_clock() {
+    uint8_t n = 0;
+    uint8_t hh = 0, mm = 0;
+    ds1307_getdate(&n, &n, &n, &hh, &mm, &n);
+    hour = hh;
+    minute = mm;
 }
 
 static void set_digits() {
-        uint8_t year = 0;
-        uint8_t month = 0;
-        uint8_t day = 0;
-        uint8_t hh = 0;
-        uint8_t mm = 0;
-        uint8_t second = 0;
-
-        //check set date
-
-				ds1307_getdate(&year, &month, &day, &hh, &mm, &second);
-    hour = mm;
-    minute = second;
     digit[0] = (hour / 10);
     digit[1] = (hour % 10);
     digit[2] = (minute / 10);
     digit[3] = (minute % 10);
 }
 
-// update 7seg digit - runs at 1000 Hz
+// }}}
+
+// {{{ update 7seg digit - runs at 1000 Hz
+
 ISR(TIMER0_COMPA_vect) {
     // choose digit
     static uint8_t mask = 0b11100001;
@@ -136,14 +144,21 @@ ISR(TIMER0_COMPA_vect) {
         ++current_digit;
 }
 
-// update events - runs at 50 Hz
+// }}}
+
+// {{{ update events - runs at 50 Hz
+
 ISR(TIMER1_COMPA_vect) {
     if (timer1_counter % 10 == 0)
         events.update_from_clock = true;
+    if (timer1_counter % 11 == 0)
+        events.check_buttons = true;
     if (timer1_counter % 40 == 0)
         show_point = !show_point;
     ++timer1_counter;
 }
+
+// }}}
 
 int main() {
     iosetup();
@@ -153,7 +168,11 @@ int main() {
             set_digits();
             events.update_from_clock = false;
         }
+        if (event.check_buttons) {
+            check_buttons();
+            events.check_buttons();
+        }
     }
 }
 
-// vim: st=4:sts=4:sw=4:expandtab
+// vim: st=4:sts=4:sw=4:expandtab:foldmethod=marker
