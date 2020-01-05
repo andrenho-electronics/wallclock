@@ -25,6 +25,7 @@ volatile Events events = { 0, 0 };
 
 volatile unsigned long timer1_counter = 0;
 volatile bool show_point = false;
+volatile bool dim = false;
 
 // }}}
 
@@ -69,6 +70,10 @@ static void iosetup()
     DDRB |= _BV(DDB1) | _BV(DDB2) | _BV(DDB3) | _BV(DDB4);  // PORTD - choose digit
     DDRD = 0xFF;  // PORTD - digit image
     PORTD = 0x00;
+    DDRC &= ~_BV(DDC3);  // PORTC - inputs with pullup
+    DDRC &= ~_BV(DDC2);
+    DDRC &= ~_BV(DDC1);
+    PORTC |= _BV(PC3) | _BV(PC2) | _BV(PC1);
 
     cli();
     // setup timer 0 for 7-seg digit rotation (1000 Hz)
@@ -91,7 +96,6 @@ static void iosetup()
 
     // setup i2c
     ds1307_init();
-    // ds1307_setdate(12, 12, 31, 23, 59, 35);
 
     sei();
 }
@@ -100,7 +104,8 @@ static void iosetup()
 
 // {{{ communication with DS1307
 
-static void update_from_clock() {
+static void update_from_clock() 
+{
     uint8_t n = 0;
     uint8_t hh = 0, mm = 0;
     ds1307_getdate(&n, &n, &n, &hh, &mm, &n);
@@ -108,7 +113,8 @@ static void update_from_clock() {
     minute = mm;
 }
 
-static void set_digits() {
+static void set_digits()
+{
     digit[0] = (hour / 10);
     digit[1] = (hour % 10);
     digit[2] = (minute / 10);
@@ -119,7 +125,8 @@ static void set_digits() {
 
 // {{{ update 7seg digit - runs at 1000 Hz
 
-ISR(TIMER0_COMPA_vect) {
+ISR(TIMER0_COMPA_vect) 
+{
     // choose digit
     static uint8_t mask = 0b11100001;
     uint8_t pb = PORTB;
@@ -136,6 +143,10 @@ ISR(TIMER0_COMPA_vect) {
     // draw digit
     PORTB = pb;
     PORTD = ~images[tdigit];
+    if (dim) {
+        _delay_us(2);
+        PORTD = 0xFF;
+    }
 
     // advance to next digit
     if (current_digit == 3)
@@ -148,10 +159,11 @@ ISR(TIMER0_COMPA_vect) {
 
 // {{{ update events - runs at 50 Hz
 
-ISR(TIMER1_COMPA_vect) {
-    if (timer1_counter % 10 == 0)
+ISR(TIMER1_COMPA_vect) 
+{
+    if (timer1_counter % 14 == 0)
         events.update_from_clock = true;
-    if (timer1_counter % 11 == 0)
+    if (timer1_counter % 27 == 0)
         events.check_buttons = true;
     if (timer1_counter % 40 == 0)
         show_point = !show_point;
@@ -160,7 +172,38 @@ ISR(TIMER1_COMPA_vect) {
 
 // }}}
 
-int main() {
+// {{{ inputs
+
+void check_buttons()
+{
+    bool time_changed = false;
+
+    // hour button
+    if ((PINC & (1 << PC3)) == 0) {
+        ++hour;
+        if (hour > 23)
+            hour = 0;
+        time_changed = true;
+    }
+
+    // minute button
+    if ((PINC & (1 << PC2)) == 0) {
+        ++minute;
+        if (minute > 59)
+            minute = 0;
+        time_changed = true;
+    }
+
+    dim = ((PINC & (1 << PC1)) == 0);
+
+    if (time_changed)
+        ds1307_setdate(1, 1, 1, hour, minute, 0);
+}
+
+// }}}
+
+int main() 
+{
     iosetup();
     while (1) {
         if (events.update_from_clock) {
@@ -168,9 +211,9 @@ int main() {
             set_digits();
             events.update_from_clock = false;
         }
-        if (event.check_buttons) {
+        if (events.check_buttons) {
             check_buttons();
-            events.check_buttons();
+            events.check_buttons = false;
         }
     }
 }
