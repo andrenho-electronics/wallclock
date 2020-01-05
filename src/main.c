@@ -7,6 +7,8 @@
 #include <avr/io.h>
 #include <util/delay.h>
 
+#include "ds1307.h"
+
 volatile uint8_t hour = 9,                         // current hour
                  minute = 34;                       // current minute
 
@@ -17,7 +19,7 @@ volatile uint8_t current_digit = 0;                // current digit being displa
 volatile uint8_t digit[4] = { 0, 0, 0, 0 };        // current number for each one of the 4 digits
 
 typedef struct {
-    bool update_clock : 1;
+    bool update_from_clock : 1;
 } Events;
 volatile Events events = { 0 };
 
@@ -53,6 +55,8 @@ uint8_t images[] = {
 
 static void iosetup()
 {
+    _delay_ms(500);
+
     // setup ports
     DDRB |= _BV(DDB1) | _BV(DDB2) | _BV(DDB3) | _BV(DDB4);  // PORTD - choose digit
     DDRD = 0xFF;  // PORTD - digit image
@@ -77,13 +81,29 @@ static void iosetup()
     TCCR1B |= (0 << CS12) | (1 << CS11) | (0 << CS10);  // prescaler = 8
     TIMSK1 |= (1 << OCIE1A);  // enable interrupt
 
+    // setup i2c
+    ds1307_init();
+    ds1307_setdate(12, 12, 31, 23, 59, 35);
+
     sei();
 }
 
-static void update_clock() {
+static void update_from_clock() {
 }
 
 static void set_digits() {
+        uint8_t year = 0;
+        uint8_t month = 0;
+        uint8_t day = 0;
+        uint8_t hh = 0;
+        uint8_t mm = 0;
+        uint8_t second = 0;
+
+        //check set date
+
+				ds1307_getdate(&year, &month, &day, &hh, &mm, &second);
+    hour = mm;
+    minute = second;
     digit[0] = (hour / 10);
     digit[1] = (hour % 10);
     digit[2] = (minute / 10);
@@ -119,7 +139,7 @@ ISR(TIMER0_COMPA_vect) {
 // update events - runs at 50 Hz
 ISR(TIMER1_COMPA_vect) {
     if (timer1_counter % 10 == 0)
-        events.update_clock = true;
+        events.update_from_clock = true;
     if (timer1_counter % 40 == 0)
         show_point = !show_point;
     ++timer1_counter;
@@ -128,10 +148,10 @@ ISR(TIMER1_COMPA_vect) {
 int main() {
     iosetup();
     while (1) {
-        if (events.update_clock) {
-            update_clock();
+        if (events.update_from_clock) {
+            update_from_clock();
             set_digits();
-            events.update_clock = false;
+            events.update_from_clock = false;
         }
     }
 }
