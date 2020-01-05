@@ -161,9 +161,9 @@ ISR(TIMER0_COMPA_vect)
 
 ISR(TIMER1_COMPA_vect) 
 {
-    if (timer1_counter % 14 == 0)
+    if (timer1_counter % 10 == 0)
         events.update_from_clock = true;
-    if (timer1_counter % 27 == 0)
+    if (timer1_counter % 14 == 0)
         events.check_buttons = true;
     if (timer1_counter % 40 == 0)
         show_point = !show_point;
@@ -196,8 +196,11 @@ void check_buttons()
 
     dim = ((PINC & (1 << PC1)) == 0);
 
-    if (time_changed)
+    if (time_changed) {
         ds1307_setdate(1, 1, 1, hour, minute, 0);
+        update_from_clock();
+        set_digits();
+    }
 }
 
 // }}}
@@ -206,14 +209,14 @@ int main()
 {
     iosetup();
     while (1) {
+        if (events.check_buttons) {
+            check_buttons();
+            events.check_buttons = false;
+        }
         if (events.update_from_clock) {
             update_from_clock();
             set_digits();
             events.update_from_clock = false;
-        }
-        if (events.check_buttons) {
-            check_buttons();
-            events.check_buttons = false;
         }
     }
 }
